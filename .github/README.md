@@ -29,7 +29,6 @@ graph TB
     subgraph Host["Docker Host"]
         MC["mcpdoc container<br/><code>-p 32355:8000</code>"]
         CFG["config.yaml<br/>6 doc sources"]
-        EP["docker-entrypoint.sh<br/>auto-detect transport"]
     end
 
     subgraph MCP["Model Context Protocol"]
@@ -48,50 +47,6 @@ graph TB
     LLM -- "SSE / STDIO" --> MC
     MC --> CFG
     MC --> Web
-```
-
-### Transport modes
-
-```mermaid
-flowchart LR
-    A["docker run -d -p 32355:8000 mcpdoc"]
-    B["echo '{}' | docker run -i mcpdoc"]
-    C["docker run -i mcpdoc --transport=sse --port=9000"]
-
-    A --> D["entrypoint detects: no pipe"]
-    D --> E["--transport=sse"]
-    E --> F["SSE Server on :8000"]
-
-    B --> G["entrypoint detects: stdin is pipe"]
-    G --> H["--transport=stdio"]
-    H --> I["JSON-RPC over stdio"]
-
-    C --> J["entrypoint detects: --transport= explicit"]
-    J --> K["passthrough as-is"]
-    K --> L["SSE Server on :9000"]
-```
-
-### Build stages
-
-```mermaid
-flowchart LR
-    subgraph Builder["Builder Stage"]
-        B1["ubuntu:24.04"] --> B2["apt: ca-certificates"]
-        B2 --> B3["COPY uv from ghcr.io"]
-        B3 --> B4["uv tool install mcpdoc"]
-        B4 --> B5["/opt/mcpdoc/bin/mcpdoc"]
-    end
-
-    subgraph Runtime["Runtime Stage"]
-        R1["ubuntu:24.04"] --> R2["apt: ca-certificates + curl"]
-        R2 --> R3["groupadd + useradd mcpdoc"]
-        R3 --> R4["COPY --from=builder<br/>--chown=mcpdoc"]
-        R4 --> R5["COPY docker-entrypoint.sh<br/>config.yaml"]
-        R5 --> R6["USER mcpdoc:1001"]
-        R6 --> R7["ENTRYPOINT"]
-    end
-
-    B5 -.->|"--chown=mcpdoc"| R4
 ```
 
 ---
@@ -117,13 +72,13 @@ curl -N http://localhost:32355/sse
 
 ### SSE mode (server)
 
-Serve documentation as an MCP SSE endpoint — the primary use case.
+Serve documentation as an MCP SSE endpoint — the primary use case. The Docker container is configured by default to run as an SSE server bound to `0.0.0.0:8000`.
 
 ```bash
-# Default: port 8000, 6 doc sources
+# Default: port 8000, 6 doc sources, SSE transport
 docker run --rm -d -p 32355:8000 mcpdoc
 
-# Custom port, explicit transport
+# Custom port mapping, explicit transport
 docker run --rm -d -p 8080:8000 mcpdoc --transport=sse --port=8000
 ```
 
@@ -160,19 +115,16 @@ curl -X POST "http://localhost:32355/messages/?session_id=abc123..." \
 Responses arrive as SSE `event: message` on the same connection.
 </details>
 
-### STDIO mode (pipe)
+### STDIO mode
 
 Connect directly to the container's stdio — for local CLI or embedded MCP clients.
 
 ```bash
-# Auto-detected: stdin is a pipe → --transport=stdio
+# STDIO mode
 echo '{}' | docker run --rm -i mcpdoc
 
-# Explicit override
-echo '{}' | docker run --rm -i mcpdoc --transport=stdio
-
 # With different config
-echo '{}' | docker run --rm -i mcpdoc --yaml /app/config.yaml --transport=stdio
+echo '{}' | docker run --rm -i mcpdoc --yaml /app/config.yaml
 ```
 
 ### Custom config
@@ -186,9 +138,8 @@ docker run --rm -d -p 32355:8000 \
   mcpdoc
 
 # Override with inline arguments
-docker run --rm -i mcpdoc \
-  --urls "FastMCP:https://gofastmcp.com/llms-full.txt" \
-  --transport=stdio
+docker run --rm -d -p 32355:8000 mcpdoc \
+  --urls "FastMCP:https://gofastmcp.com/llms-full.txt"
 ```
 
 ---
@@ -232,10 +183,9 @@ Define documentation sources as a list of `llms.txt` URLs:
 ### Using `--urls` (no config file needed)
 
 ```bash
-docker run --rm -i mcpdoc \
+docker run --rm -d -p 32355:8000 mcpdoc \
   --urls "LangGraph:https://langchain-ai.github.io/langgraph/llms.txt" \
-  --urls "FastMCP:https://gofastmcp.com/llms-full.txt" \
-  --transport=stdio
+  --urls "FastMCP:https://gofastmcp.com/llms-full.txt"
 ```
 
 ---
@@ -278,14 +228,14 @@ sequenceDiagram
 | ubuntu:24.04 | Base OS | ~78 MB |
 | apt packages | ca-certificates, curl | ~10 MB |
 | `/opt/mcpdoc` | mcpdoc + Python 3.14 + 42 packages | ~157 MB |
-| config, entrypoint | Configuration | ~1 kB |
+| config | Configuration | ~1 kB |
 | **Total** | | **~334 MB** |
 
 ### Security
 
-- Runs as **non-root** user `mcpdoc` (uid 1001)
+- Runs as **non-root** user `mcpdoc` (uid 568)
 - `USER mcpdoc` in Dockerfile — no `root` processes
-- HEALTHCHECK with `curl` via port check only
+- `EXPOSE 8000` for SSE server mode
 
 ---
 
@@ -294,18 +244,18 @@ sequenceDiagram
 ```bash
 # Prerequisites
 # - Docker 24+
-# - uv (optional, for local testing)
 
 # Build
 docker build --progress=plain -t mcpdoc .
 
-# Test all modes
-docker run --rm -d -p 32355:8000 mcpdoc                        # SSE
-echo '{}' | docker run --rm -i mcpdoc                           # STDIO
-echo '{}' | docker run --rm -i mcpdoc --transport=stdio         # explicit STDIO
+# Test SSE mode
+docker run --rm -d -p 32355:8000 mcpdoc                        # SSE server
 
-# Check health
-docker inspect --format='{{json .State.Health}}' $(docker ps -lq)
+# Test STDIO mode
+echo '{}' | docker run --rm -i mcpdoc                        # STDIO
+
+# Check container info
+docker inspect --format='{{json .State}}' $(docker ps -lq)
 
 # Run with custom config (mount)
 docker run --rm -d -p 32355:8000 \
@@ -320,7 +270,6 @@ mcpdoc/
 ├── .dockerignore            # Tight build context
 ├── Dockerfile               # Multi-stage build
 ├── config.yaml              # 6 documentation sources
-├── docker-entrypoint.sh     # Transport auto-detection
 └── .github/
     └── README.md            # This file
 ```
@@ -354,8 +303,7 @@ Options:
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | `port is already allocated` | Container from previous run | `docker rm -f <container>` |
-| `curl: (7) Connection refused` | Server not ready | Wait for HEALTHCHECK |
-| `No source option provided` | `--yaml` or `--urls` missing | Entrypoint adds it automatically |
+| `curl: (7) Connection refused` | Server not ready | Wait for service to start |
 | `Permission denied` | Wrong user ownership | Rebuild with `docker build --no-cache` |
 
 ---

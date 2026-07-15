@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && rm -rf /var/lib/apt/lists/*
 
 # Создаём непривилегированного пользователя
-RUN groupadd --gid 1001 mcpdoc && useradd --gid mcpdoc --uid 1001 --create-home mcpdoc
+RUN groupadd --gid 568 mcpdoc && useradd --gid mcpdoc --uid 568 --create-home mcpdoc
 
 # Копирование установленного mcpdoc из builder с владельцем mcpdoc
 COPY --from=builder --chown=mcpdoc:mcpdoc /opt/mcpdoc /opt/mcpdoc
@@ -36,6 +36,7 @@ LABEL org.opencontainers.image.title="mcpdoc" \
       org.opencontainers.image.source="https://pypi.org/project/mcpdoc/" \
       org.opencontainers.image.version="0.0.10"
 
+USER mcpdoc
 WORKDIR /app
 
 ENV PATH=/opt/mcpdoc/bin:$PATH
@@ -43,12 +44,7 @@ ENV PATH=/opt/mcpdoc/bin:$PATH
 # Используем не-privileged порт (для USER mcpdoc)
 EXPOSE 8000
 
-COPY --link docker-entrypoint.sh config.yaml ./
+COPY --link config.yaml ./
 
-RUN chmod +x docker-entrypoint.sh \
-    && chown -R mcpdoc:mcpdoc /app
-
-USER mcpdoc
-
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["--yaml", "config.yaml", "--follow-redirects", "--timeout=15", "--host=0.0.0.0", "--port=8000"]
+ENTRYPOINT ["mcpdoc", "--yaml", "config.yaml", "--follow-redirects", "--host=0.0.0.0", "--port=8000"]
+CMD ["--timeout=15"]
