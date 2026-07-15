@@ -43,9 +43,6 @@ ENV PATH=/opt/mcpdoc/bin:$PATH
 # Используем не-privileged порт (для USER mcpdoc)
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -s -o /dev/null http://localhost:8000/ --connect-timeout 10 || exit 1
-
 COPY --link docker-entrypoint.sh config.yaml ./
 
 RUN chmod +x docker-entrypoint.sh \
