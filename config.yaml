@@ -1,0 +1,12 @@
+- name: LangGraph Python
+  llms_txt: https://langchain-ai.github.io/langgraph/llms.txt
+- name: LangChain Python
+  llms_txt: https://python.langchain.com/llms.txt
+- name: Pydantic Validation
+  llms_txt: https://pydantic.dev/docs/validation/latest/llms.txt
+- name: Fast MCP
+  llms_txt: https://gofastmcp.com/llms-full.txt
+- name: Plano AI
+  llms_txt: https://docs.planoai.dev/includes/llms.txt
+- name: Astral uv uvx
+  llms_txt: https://docs.astral.sh/uv/llms.txt
